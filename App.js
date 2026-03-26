@@ -1,8 +1,11 @@
-import React, {useState} from 'react';
+import React, {useState, useEffect} from 'react';
 import { Alert, Modal, Keyboard, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Task from './components/Task';
 import { StatusBar } from 'expo-status-bar';
 import { Image } from 'react-native';
+import { db } from './firebase';
+import { collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc } from 'firebase/firestore';
+
 
 export default function App() {
   const [task, setTask] = useState();
@@ -12,28 +15,53 @@ export default function App() {
   const [editText, setEditText] = useState('');
   const [editIndex, setEditIndex] = useState(null);
 
-  const handleAddTask = () => {
-    if (!task) return;
-    Keyboard.dismiss();
-    setTaskItems([...taskItems, { text: task, completed: false }])
-    setTask(null);
-  }
 
-  const completeTask = (index) => {
+  useEffect(() => {
+  const unsubscribe = onSnapshot(collection(db, "tasks"), (snapshot) => {
+    const tasks = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+    setTaskItems(tasks);
+  });
+
+  return unsubscribe;
+}, []);
+
+
+const handleAddTask = async () => {
+  if (!task) return;
+  Keyboard.dismiss();
+
+  await addDoc(collection(db, "tasks"), {
+    text: task,
+    completed: false,
+    createdAt: new Date()
+  });
+
+  setTask(null);
+};
+
+  const completeTask = async (index) => {
     Alert.alert(
       "Tâche",
       "Qu’est-ce que tu veux faire ?",
       [
-        { text: "Annuler", style: "annuler" },
+        { text: "Annuler", style: "cancel" },
         { text: "Modifier ✏️", onPress: () => editTask(index) },
-        { text: "Marquer comme terminé ✓", onPress: () => {
-          let itemsCopy = [...taskItems];
-          itemsCopy[index].completed = true;
-          setTaskItems(itemsCopy);
-        }},
+        { 
+          text: "Marquer comme terminé ✓", 
+          onPress: async () => {
+            const taskId = taskItems[index].id;
+
+            await updateDoc(doc(db, "tasks", taskId), {
+              completed: true
+            });
+          }
+        },
       ]
     );
-  }
+  };
 
 const editTask = (index) => {
   setEditText(taskItems[index].text);
@@ -41,13 +69,17 @@ const editTask = (index) => {
   setEditVisible(true);
 }
 
-const saveEdit = () => {
+const saveEdit = async () => {
   if (!editText) return;
-  let itemsCopy = [...taskItems];
-  itemsCopy[editIndex].text = editText;
-  setTaskItems(itemsCopy);
+
+  const taskId = taskItems[editIndex].id;
+
+  await updateDoc(doc(db, "tasks", taskId), {
+    text: editText
+  });
+
   setEditVisible(false);
-}
+};
 
   return (
     <View style={[styles.container, darkMode && { backgroundColor: '#393939' }]}>
@@ -95,10 +127,9 @@ const saveEdit = () => {
             taskItems.map((item, index) => {
               return (
                 <TouchableOpacity key={index} onPress={() => completeTask(index)}>
-                  <Task key={index} text={item.text} completed={item.completed} onDelete={() => {
-                    let itemsCopy = [...taskItems];
-                    itemsCopy.splice(index, 1);
-                    setTaskItems(itemsCopy);
+                  <Task key={index} text={item.text} completed={item.completed} 
+                  onDelete={async () => {
+                    await deleteDoc(doc(db, "tasks", item.id));
                   }} />
                 </TouchableOpacity>
               )
@@ -127,6 +158,7 @@ const saveEdit = () => {
     </View>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: {
